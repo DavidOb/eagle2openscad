@@ -1,6 +1,17 @@
 if (!board) {
-    dlgMessageBox("Run this ULP from a Board", "OK");
-    exit (0);
+  dlgMessageBox("Run this ULP from a Board", "OK");
+  exit (0);
+}
+
+real convert(int n,int units)
+{
+    switch(units) {
+        case 0: return u2inch(n);
+        case 1: return u2mic(n);
+        case 2: return u2mil(n);
+        case 3: return u2mm(n);
+        case 4: return real(n);
+    }
 }
 
 board(B) {
@@ -9,6 +20,9 @@ board(B) {
     int include_partname=0;
     int include_partvalue=0;
     int include_comment=0;
+    int units=3;
+    string units_text[]={"inches","microns (1/1000 mm)","mils (1/1000 inch)","milimeters","internal units (1/320000 mm)"};
+    
     int result = dlgDialog("Export settings") {
         dlgLabel("Exports coordinates (in mm) of selected parts as an OpenSCAD array defining a variable.");
         dlgHBoxLayout {
@@ -26,9 +40,8 @@ board(B) {
             +"\n... or simply write whichever regexp you like.\n"
             );
         }
-        
         dlgHBoxLayout {
-            dlgLabel("OpenSCAD variable name");
+            dlgLabel("OpenSCAD variable name:");
             dlgStringEdit(variable_name);
         }
         dlgCheckBox("Include part &name",include_partname);
@@ -36,6 +49,11 @@ board(B) {
         dlgHBoxLayout {
             dlgLabel("     ");
             dlgCheckBox("... include it as a &comment",include_comment);
+            dlgStretch(1);
+        }
+        dlgHBoxLayout {
+            dlgLabel("Units:");
+            dlgComboBox(units_text,units);
             dlgStretch(1);
         }
         dlgHBoxLayout {
@@ -68,6 +86,8 @@ board(B) {
             if(include_partname) partname=", name"; else partname="";
             if(include_partvalue) partvalue=", value"; else partvalue="";
         }
+        printf("// Selection pattern: %s\n",pattern);
+        printf("// Units: %s\n",units_text[units]);
         printf("//[   x   ,   y   %s%s ], %s\n",partname,partvalue,comment);
 
         B.elements(E) if (E.populate) {
@@ -81,7 +101,7 @@ board(B) {
                   if(include_partname) partname=", \""+E.name+"\""; else partname="";
                   if(include_partvalue) partvalue=", \""+E.value+"\""; else partvalue="";
               }
-              printf("  [ %6.2f, %6.2f%s%s ], %s\n", u2mm(E.x), u2mm(E.y),partname,partvalue,comment);
+              printf("  [ %6.2f, %6.2f%s%s ], %s\n", convert(E.x,units), convert(E.y,units),partname,partvalue,comment);
           }
         }
         printf("];\n");
