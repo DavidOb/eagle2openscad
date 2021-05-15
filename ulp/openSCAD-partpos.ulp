@@ -1,0 +1,181 @@
+/*
+This project is licensed under the terms of the MIT license.
+
+Copyright (c) 2021 David Obdrzalek <david.obdrzalek@email.cz>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+// Eagle to OpenSCAD part position export
+// This ULP exports coordinates of selected parts in OpenSCAD array format.
+// Tested in Eagle 7.7.0 only.
+
+#usage "<b>Exports coordinates of selected parts in OpenSCAD array format.</b>\n"
+       "<p>"
+       "Usage: call from within Eagle Board editor, set whichever options and smash the OK button. Thene select output filename, smash the OK button again and let it dance."
+       "<p>"
+       "More info at: https://github.com/DavidOb/eagle2openscad.git"
+       "<p>"
+       "<author>Author: David Obdrzalek david.obdrzalek@email.cz</author></nobr>"
+
+
+if (!board) {
+  dlgMessageBox("Run this ULP from a Board", "OK");
+  exit (0);
+}
+
+real convert(int n,int units)
+{
+    switch(units) {
+        case 0: return u2inch(n);
+        case 1: return u2mic(n);
+        case 2: return u2mil(n);
+        case 3: return u2mm(n);
+        case 4: return real(n);
+    }
+}
+
+board(B) {
+    string pattern="";
+    string variable_name="partsPositions";
+    int export_bottom = 0; // 0 top, 1 bottom
+    int export_type = 0; // 0 tht, 1 smd, 2 both
+    int include_partname=1; // 0 no, 1 yes
+    int include_partvalue=1; // 0 no, 1 yes
+    int include_partpackage=1; // 0 no, 1 yes
+    int include_inside=0; // 0 inside array, 1 as comments
+    int units=3; // 0 in, 1 um, 2 mil, 3 mm, 4 iu (see units_text)
+
+    string units_text[]={"inches","microns (1/1000 mm)","mils (1/1000 inch)","milimeters","internal units (1/320000 mm)"};
+    int result = dlgDialog("Export settings") {
+        dlgLabel("Exports coordinates of selected parts as an OpenSCAD array defining a variable.");
+        dlgHBoxLayout {
+            dlgLabel("RegExp Pattern");
+            dlgStringEdit(pattern);
+            dlgPushButton("Help") dlgMessageBox("Just use regular expression to match part name :-)\n\n"
+            +"A few hints:\n"
+            +"Leave empty for all parts\n"
+            +"Start with ^ to match from part name start\n"
+            +"Use [ACH] to match any of A, C or H\n"
+            +"Use . to match any single character\n"
+            +"Use * to match zero or more of preceding characters\n"
+            +"e.g. ^[RC] will match all parts whose name starts with R or C, typically all resistors + all capacitors\n"
+            +"^[RC].*2 will match all parts whose name starts with R or C and ends with 2, e.g. R2, R12, C42 and such\n"
+            +"\n... or simply write whichever regexp you like.\n"
+            );
+        }
+        dlgGroup("Export parts from layer") {
+            dlgHBoxLayout {
+                dlgRadioButton("&Top", export_bottom);
+                dlgRadioButton("&Bottom (mirrored)", export_bottom);
+                dlgStretch(1);
+            }
+        };
+        dlgGroup("Export parts of type") {
+            dlgHBoxLayout {
+                dlgRadioButton("T&HT", export_type);
+                dlgRadioButton("&SMD", export_type);
+                dlgRadioButton("b&oth", export_type);
+                
+                dlgStretch(1);
+            }
+        }
+        dlgHBoxLayout {
+            dlgLabel("OpenSCAD variable name:");
+            dlgStringEdit(variable_name);
+        }
+        dlgGroup("Include more info") {
+            dlgCheckBox("Include part &name",include_partname);
+            dlgCheckBox("Include part &value",include_partvalue);
+            dlgCheckBox("Include part &package",include_partpackage);
+            dlgHBoxLayout {
+                dlgLabel("     ... ");
+                dlgRadioButton("as &comments",include_inside);
+                dlgRadioButton("inside the a&rray",include_inside);
+                dlgStretch(1);
+            }
+        }
+        dlgHBoxLayout {
+            dlgLabel("Units:");
+            dlgComboBox(units_text,units);
+            dlgStretch(1);
+        }
+        dlgHBoxLayout {
+            dlgStretch(1);
+            dlgPushButton("+OK") dlgAccept();
+            dlgPushButton("-Cancel") dlgReject(-1);
+        }
+    };
+    if (result < 0) {
+        exit(0);
+    }
+    
+    int export_tht = export_type!=1;
+    int export_smd = export_type!=0;
+
+    string file_name = dlgFileSave("Export to file","","OpenSCAD files (*.scad *.txt);;Any file type (*.*)");
+    if (file_name=="") {
+        dlgMessageBox("No file selected - exiting.", "OK");
+        exit(0);
+    }
+
+    output(file_name) {
+        string partname="";
+        string partvalue="";
+        string partpackage="";
+        string comment="";
+        printf(variable_name+" = [\n");
+
+        if(!include_inside && (include_partname || include_partvalue || include_partpackage)) {
+            comment="// ";
+            if(include_partname) comment += "name | ";
+            if(include_partvalue) comment += "value | ";
+            if(include_partpackage) comment += "package | ";
+        } else {
+            if(include_partname) partname=", name"; else partname="";
+            if(include_partvalue) partvalue=", value"; else partvalue="";
+            if(include_partpackage) partpackage=", package"; else partpackage="";
+        }
+        printf("// Date exported: %s\n",t2string(time(), "Uyyyy-MM-dd hh:mm:ss"));
+        printf("// Board name: %s\n",B.name);
+        printf("// Exporting: %s, %s%s\n",export_bottom?"bottom":"top",export_tht?"THT ":"",export_smd?"SMD":"");
+        printf("// Selection pattern: %s\n",pattern?pattern:"(empty)");
+        printf("// Units: %s\n",units_text[units]);
+        printf("//[   x   ,   y   , rot%s%s%s ], %s\n",partname,partvalue,partpackage,comment);
+
+        B.elements(E) if (E.populate) {
+          if( strxstr(E.name, pattern) >= 0 ) {
+              int is_smd=0;
+              int is_tht=0;
+
+              E.package.contacts(C) {
+                  if (C.smd) is_smd=1; else is_tht=1;
+              }
+
+              if(E.mirror) {if(!export_bottom) continue;}
+              else {if(export_bottom) continue;}
+
+              if( !( (is_smd && export_smd)||(is_tht && export_tht) ) ) continue;
+
+              comment="";
+              if(!include_inside && (include_partname || include_partvalue || include_partpackage)) {
+                  comment="// ";
+                  if(include_partname) comment += E.name+" | ";
+                  if(include_partvalue) comment += E.value+" | ";
+                  if(include_partpackage) comment += E.package.name+" | ";
+              } else {
+                  if(include_partname) partname=", \""+E.name+"\""; else partname="";
+                  if(include_partvalue) partvalue=", \""+E.value+"\""; else partvalue="";
+                  if(include_partpackage) partpackage=", \""+E.package.name+"\""; else partpackage="";
+              }
+              printf("  [ %6.2f, %6.2f, %3.0f%s%s%s ], %s\n", convert(E.x,units), convert(E.y,units),E.angle,partname,partvalue,partpackage,comment);
+          }
+        }
+        printf("];\n");
+    }
+    dlgMessageBox("Exported to "+file_name, "OK");
+}
